@@ -19,7 +19,7 @@ local obj = {}
 obj.__index = obj
 
 obj.name = "KeyCaster"
-obj.version = "0.0.2"
+obj.version = "0.0.3"
 obj.author = "Selim Acerbas"
 obj.homepage = "https://www.github.com/selimacerbas/KeyCaster.spoon/"
 obj.license = "MIT"
@@ -41,8 +41,10 @@ obj.config = {
     positionMode = "free",
     positionFree = { x = 20, y = 80 },
     column = {
-        maxCharsPerBox = 14,   -- start a new box if current has this many glyphs
-        newBoxOnPause  = 0.70, -- seconds of inactivity to start a new box
+        maxCharsPerBox = 14,        -- legacy fallback: start a new box after this many glyphs (used if fillMode="chars")
+        newBoxOnPause  = 0.70,      -- seconds of inactivity to start a new box
+        fillMode       = "measure", -- "measure" (preferred, uses pixel width) | "chars"
+        fillFactor     = 0.96,      -- when measuring, start a new box once text width exceeds fillFactor * available width
     },
 
     -- Line mode visuals
@@ -437,17 +439,40 @@ function obj:_columnPush(label)
     local needNew = true
     if g and g.canvas then
         local paused = (t - (g.lastTouch or 0)) >= c.column.newBoxOnPause
-        local long   = (utf8.len(g.text or "") or #tostring(g.text or "")) >= c.column.maxCharsPerBox
-        needNew      = paused or long
+        local long
+        if c.column.fillMode == "measure" then
+            local paddingLR = 24 -- matches text frame { x=12, w=frame.w-24 }
+            local available = (c.box.w - paddingLR) * (c.column.fillFactor or 0.96)
+            local candidate = (g.text and #g.text > 0) and (g.text .. " " .. label) or label
+            local w = self:_measure(candidate)
+            long = (w > available)
+        else
+            long = (utf8.len(g.text or "") or #tostring(g.text or "")) >= c.column.maxCharsPerBox
+        end
+        needNew = paused or long
     end
 
     if needNew or (not g) then
         startNewBox()
     else
         -- append to existing
-        g.text = g.text .. " " .. label
-        g.lastTouch = t
-        g.canvas[2].text = g.text
+        local candidate = (g.text and #g.text > 0) and (g.text .. " " .. label) or label
+        if c.column.fillMode == "measure" then
+            local paddingLR = 24
+            local available = (c.box.w - paddingLR) * (c.column.fillFactor or 0.96)
+            local w = self:_measure(candidate)
+            if w > available then
+                startNewBox()
+            else
+                g.text = candidate
+                g.lastTouch = t
+                g.canvas[2].text = g.text
+            end
+        else
+            g.text = candidate
+            g.lastTouch = t
+            g.canvas[2].text = g.text
+        end
         g.canvas:show()
     end
 
