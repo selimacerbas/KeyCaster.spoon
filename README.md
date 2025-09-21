@@ -1,7 +1,5 @@
 # KeyCaster.spoon
 
-![Demo](docs/demo.gif)
-
 Display your recent keystrokes on screen — perfect for screen recording, live demos, and tutorials.
 
 KeyCaster shows a tasteful overlay that **follows the monitor under your mouse**, with a **“KC” menubar icon** while active. It supports two display modes, a drag-anywhere anchor, and pixel-accurate, word-safe grouping so labels never break awkwardly.
@@ -11,6 +9,15 @@ KeyCaster shows a tasteful overlay that **follows the monitor under your mouse**
 ---
 
 > You might like these tools as well; [CursorScope](https://www.github.com/selimacerbas/CursorScope.spoon) [FocusMode](https://www.github.com/selimacerbas/FocusMode.spoon) 
+
+---
+## 🎥 Demo
+
+![Column](assets/column.gif)
+
+![Line](assets/line.gif)
+
+![Drag](assets/drag.gif)
 
 ---
 
