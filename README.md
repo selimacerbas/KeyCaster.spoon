@@ -1,37 +1,35 @@
-
 # KeyCaster.spoon
 
 ![Demo](docs/demo.gif)
 
 Display your recent keystrokes on screen — perfect for screen recording, live demos, and tutorials.
 
-KeyCaster shows a tasteful overlay that **follows the monitor under your mouse**, with a menubar indicator while active. It supports two display modes, smooth fading, and a fully configurable position.
+KeyCaster shows a tasteful overlay that **follows the monitor under your mouse**, with a **“KC” menubar icon** while active. It supports two display modes, a drag-anywhere anchor, and pixel-accurate, word-safe grouping so labels never break awkwardly.
 
 > ⚠️ Privacy: KeyCaster only *visualizes* keystrokes in real time. It does **not** store, send, or log what you type.
 
 ---
 
-## Features
+> You might like these tools as well; [CursorScope](https://www.github.com/selimacerbas/CursorScope.spoon) [FocusMode](https://www.github.com/selimacerbas/FocusMode.spoon) 
 
-* **Two modes**
+---
 
-  * **Column** (default): stacked boxes; each box accumulates multiple keystrokes until a pause or char limit.
-  * **Line**: a single box; new keys append on the right, oldest fade from the left.
-* **Follows the active display** (the one under your mouse).
-* **Configurable position** (any corner + margins).
-* **Configurable fade** and visibility rules (keep the newest N at minimum opacity).
-* **Menubar indicator** while active.
-* **Start/Stop hotkeys** (default ⌃⌥⌘K / ⌃⌥⌘F).
-* Friendly glyphs for special keys (↩︎ ⎋ ⌫ arrows, etc.) and modifiers (⌘⌥⌃⇧).
+## What’s new
+
+* **Drag to move** (⌘⌥ + left-drag) — place the overlay anywhere on screen.
+* **Deterministic across displays** — position stays in the *same relative spot* when you move to another monitor.
+* **Menubar menu (KC)** — switch **Column / Line** from the menu; Start/Stop entry included.
+* **Column mode**: pixel-measured fill (no early wraps), **hard grouping** (labels aren’t split), configurable `groupJoiner`.
+* **Line mode**: default **overflow** behavior (no time fade; old segments drop only when off-box), optional `joiner`.
+* Friendly glyphs for special keys (↩︎ ⎋ ⌫ arrows, F-keys) and modifiers (⌘⌥⌃⇧).
 
 ---
 
 ## Requirements
 
-* [Hammerspoon](https://www.hammerspoon.org/) (tested on recent versions)
+* [Hammerspoon](https://www.hammerspoon.org/) (recent versions)
 * macOS with Accessibility permissions granted to Hammerspoon
-
-Grant permissions: `System Settings → Privacy & Security → Accessibility → enable Hammerspoon`.
+  → `System Settings → Privacy & Security → Accessibility → enable Hammerspoon`.
 
 ---
 
@@ -61,50 +59,81 @@ Reload Hammerspoon after installation.
 
 ## Quick Start
 
-Add to your `~/.hammerspoon/init.lua`:
+Add to `~/.hammerspoon/init.lua`:
 
 ```lua
 if hs.loadSpoon("KeyCaster") then
   spoon.KeyCaster
     :configure({
-      -- defaults shown; customize as you like
-      mode = "column", -- "column" | "line"
-      position = { corner = "bottomRight", x = 20, y = 80 },
+      -- Core
+      mode = "column",               -- "column" | "line"
       fadingDuration = 2.0,
       maxVisible = 5,
       minAlphaWhileVisible = 0.35,
       followInterval = 0.40,
+      ignoreAutoRepeat = true,
+
+      -- Free placement (drag with ⌘⌥ to move)
+      positionFree = { x = 20, y = 80 },  -- top-left anchor (px)
+
+      -- Appearance
       font = { name = "Menlo", size = 18 },
       colors = {
-        bg    = { red=0, green=0, blue=0, alpha=0.78 },
-        text  = { red=1, green=1, blue=1, alpha=0.98 },
-        stroke= { red=1, green=1, blue=1, alpha=0.15 },
-        shadow= { red=0, green=0, blue=0, alpha=0.6 },
-      },
-      -- Column mode visuals
-      column = {
-          maxCharsPerBox = 14,   -- start a new box if current has this many glyphs
-          newBoxOnPause  = 0.70, -- seconds of inactivity to start a new box
+        bg     = { red=0, green=0, blue=0, alpha=0.78 },
+        text   = { red=1, green=1, blue=1, alpha=0.98 },
+        stroke = { red=1, green=1, blue=1, alpha=0.15 },
+        shadow = { red=0, green=0, blue=0, alpha=0.6 },
       },
 
-      -- Line mode visuals
-      line = {
-          box = { w = 520, h = 36, corner = 10 },
-          maxSegments = 60, -- hard cap on segments kept in memory
-          gap = 6,          -- px gap between segments
+      -- Column mode
+      box = { w = 260, h = 36, spacing = 8, corner = 10 },
+      column = {
+        newBoxOnPause = 0.70,
+        fillMode      = "measure",  -- pixel-based packing
+        fillFactor    = 0.96,       -- new box when measured width > 96% of usable width
+        hardGrouping  = true,       -- never split labels across boxes
+        groupJoiner   = "",         -- "" for tight (e.g. ⌘C), " " or " " for spacing
+        -- maxCharsPerBox is used only if you set fillMode="chars"
       },
-      -- column/line specifics (see reference below)
+
+      -- Line mode
+      line = {
+        box = { w = 520, h = 36, corner = 10 },
+        maxSegments = 60,
+        gap = 6,
+        fadeMode = "overflow",      -- "overflow" = no time fade; trim when off-box, or "time"
+        joiner = nil,                -- nil = reuse column.groupJoiner; "" or " " to override
+      },
+
+      -- Optional safety & filters
+      respectSecureInput = true,    -- suppress while macOS secure input is active
+      appFilter = nil,              -- e.g., { mode="deny", bundleIDs={"com.agilebits.onepassword7"} }
+      showModifierOnly = false,     -- if true, show pure modifier chords (e.g., ⌘⇧)
+      showMouse = { enabled = false, radius = 14, fade = 0.6, strokeAlpha = 0.35 }, -- click ripples
     })
     :bindHotkeys(spoon.KeyCaster.defaultHotkeys)
+    :start() -- optional: start immediately
 end
 ```
 
-Reload Hammerspoon. Start/stop with:
+**Hotkeys**
 
 * **Start**: ⌃⌥⌘K
 * **Stop**:  ⌃⌥⌘F
 
-You’ll see a **⌨︎** in the menubar while KeyCaster is active.
+You’ll see **KC** in the menubar while KeyCaster is active. Click it to switch **Column/Line** or to **Stop**.
+
+---
+
+## Usage Tips
+
+* **Move the overlay**: hold **⌘⌥** and drag the box. The stack grows **down** if the anchor is in the top half, or **up** if it’s in the bottom half.
+* **Multi-display**: the anchor is stored **normalized**, so it appears in the **same relative spot** when you move between monitors.
+* **Grouping**:
+
+  * Column mode uses **pixel-measured** packing and **hard grouping** so labels aren’t split.
+  * Set `column.groupJoiner = " "` for a spaced look, or `" "` (thin space) for subtle separation.
+  * Line mode prefixes `joiner` before every segment except the first (defaults to `column.groupJoiner`).
 
 ---
 
@@ -114,49 +143,59 @@ You’ll see a **⌨︎** in the menubar while KeyCaster is active.
 
 ### Core
 
-| Key                    | Type    | Default         | Description                                                                             |
-| ---------------------- | ------- | --------------- | --------------------------------------------------------------------------------------- |
-| `mode`                 | string  | `"column"`      | `"column"` or `"line"` display mode.                                                    |
-| `position.corner`      | string  | `"bottomRight"` | One of `"bottomRight"`, `"topRight"`, `"topLeft"`, `"bottomLeft"`.                      |
-| `position.x`           | number  | `20`            | Horizontal inset (px) from the chosen left/right edge.                                  |
-| `position.y`           | number  | `80`            | Vertical inset (px) from the chosen top/bottom edge.                                    |
-| `fadingDuration`       | number  | `2.0`           | Seconds for a segment/box to fade from 1.0 alpha to 0 (or `minAlphaWhileVisible`).      |
-| `maxVisible`           | integer | `5`             | The newest N segments/boxes won’t fade below `minAlphaWhileVisible` until they age out. |
-| `minAlphaWhileVisible` | number  | `0.35`          | Minimum opacity while an item is among the newest `maxVisible`.                         |
-| `followInterval`       | number  | `0.40`          | How often (seconds) the overlay repositions to the display under your mouse.            |
-| `ignoreAutoRepeat`     | boolean | `true`          | Ignore key autorepeat events.                                                           |
+| Key                    | Type    | Default    | Description                                                                |
+| ---------------------- | ------- | ---------- | -------------------------------------------------------------------------- |
+| `mode`                 | string  | `"column"` | `"column"` or `"line"`.                                                    |
+| `positionFree.x/y`     | number  | `20/80`    | Free placement anchor (px). Drag with ⌘⌥ to update.                        |
+| `fadingDuration`       | number  | `2.0`      | Seconds to fade items (used when time-based fading is active).             |
+| `maxVisible`           | integer | `5`        | Newest N items won’t fade below `minAlphaWhileVisible` until they age out. |
+| `minAlphaWhileVisible` | number  | `0.35`     | Minimum opacity for items in the newest `maxVisible`.                      |
+| `followInterval`       | number  | `0.40`     | How often (s) to re-lay out on the display under the mouse.                |
+| `ignoreAutoRepeat`     | boolean | `true`     | Ignore key autorepeat events.                                              |
 
 ### Appearance
 
-| Key             | Type   | Default        | Description                                                                             |
-| --------------- | ------ | -------------- | --------------------------------------------------------------------------------------- |
-| `font.name`     | string | `"Menlo"`      | Font name. If missing/not installed, the Spoon resolves to an available monospace font. |
-| `font.size`     | number | `18`           | Font size (pt).                                                                         |
-| `colors.bg`     | rgba   | `{0,0,0,0.78}` | Background color of the box.                                                            |
-| `colors.text`   | rgba   | `{1,1,1,0.98}` | Text color.                                                                             |
-| `colors.stroke` | rgba   | `{1,1,1,0.15}` | Border color.                                                                           |
-| `colors.shadow` | rgba   | `{0,0,0,0.6}`  | Drop shadow color.                                                                      |
+| Key             | Type   | Default        | Description                                                         |
+| --------------- | ------ | -------------- | ------------------------------------------------------------------- |
+| `font.name`     | string | `"Menlo"`      | Font name. The Spoon resolves to an available monospace if missing. |
+| `font.size`     | number | `18`           | Font size (pt).                                                     |
+| `colors.bg`     | rgba   | `{0,0,0,0.78}` | Background color.                                                   |
+| `colors.text`   | rgba   | `{1,1,1,0.98}` | Text color.                                                         |
+| `colors.stroke` | rgba   | `{1,1,1,0.15}` | Border color.                                                       |
+| `colors.shadow` | rgba   | `{0,0,0,0.6}`  | Drop shadow color.                                                  |
 
 ### Column Mode
 
-| Key                     | Type    | Default | Description                                                |
-| ----------------------- | ------- | ------- | ---------------------------------------------------------- |
-| `box.w`                 | number  | `260`   | Box width (px).                                            |
-| `box.h`                 | number  | `36`    | Box height (px).                                           |
-| `box.spacing`           | number  | `8`     | Vertical spacing between stacked boxes (px).               |
-| `box.corner`            | number  | `10`    | Corner radius (px).                                        |
-| `column.maxCharsPerBox` | integer | `14`    | Start a new box after this many glyphs in the current box. |
-| `column.newBoxOnPause`  | number  | `0.70`  | Start a new box after this many seconds of inactivity.     |
+| Key                     | Type    | Default     | Description                                                                |
+| ----------------------- | ------- | ----------- | -------------------------------------------------------------------------- |
+| `box.w/h/spacing`       | number  | `260/36/8`  | Box width/height; vertical spacing (px).                                   |
+| `box.corner`            | number  | `10`        | Corner radius (px).                                                        |
+| `column.fillMode`       | string  | `"measure"` | `"measure"` uses pixel width; `"chars"` uses `maxCharsPerBox`.             |
+| `column.fillFactor`     | number  | `0.96`      | Start a new box when measured width exceeds this fraction of usable width. |
+| `column.newBoxOnPause`  | number  | `0.70`      | Start a new box after this many seconds of inactivity.                     |
+| `column.hardGrouping`   | boolean | `true`      | Do not split labels across boxes.                                          |
+| `column.groupJoiner`    | string  | `""`        | Joiner between labels when appending: `""`, `" "`, or `" "`.               |
+| `column.maxCharsPerBox` | int     | `14`        | Only used when `fillMode="chars"`.                                         |
 
 ### Line Mode
 
-| Key                | Type    | Default | Description                            |
-| ------------------ | ------- | ------- | -------------------------------------- |
-| `line.box.w`       | number  | `520`   | Box width (px).                        |
-| `line.box.h`       | number  | `36`    | Box height (px).                       |
-| `line.box.corner`  | number  | `10`    | Corner radius (px).                    |
-| `line.maxSegments` | integer | `60`    | Max number of segments kept in memory. |
-| `line.gap`         | number  | `6`     | Horizontal gap (px) between segments.  |
+| Key                | Type        | Default      | Description                                                                              |
+| ------------------ | ----------- | ------------ | ---------------------------------------------------------------------------------------- |
+| `line.box.w/h`     | number      | `520/36`     | Box width/height (px).                                                                   |
+| `line.box.corner`  | number      | `10`         | Corner radius (px).                                                                      |
+| `line.maxSegments` | integer     | `60`         | Max segments kept in memory.                                                             |
+| `line.gap`         | number      | `6`          | Horizontal gap (px) between segments.                                                    |
+| `line.fadeMode`    | string      | `"overflow"` | `"overflow"` (no time fade; drop when off-box) or `"time"` (fades by `fadingDuration`).  |
+| `line.joiner`      | string\|nil | `nil`        | Prefix joiner before every segment except the first. `nil` → reuse `column.groupJoiner`. |
+
+### Safety & Filters
+
+| Key                  | Type       | Default | Description                                                         |
+| -------------------- | ---------- | ------- | ------------------------------------------------------------------- |
+| `respectSecureInput` | boolean    | `true`  | Suppress output when macOS *Secure Keyboard Entry* is active.       |
+| `appFilter`          | table\|nil | `nil`   | e.g., `{ mode="deny", bundleIDs={"com.agilebits.onepassword7"} }`.  |
+| `showModifierOnly`   | boolean    | `false` | If `true`, show pure modifier chords (e.g., ⌘⇧) when pressed alone. |
+| `showMouse`          | table      | see QS  | Click ripples: `{ enabled, radius, fade, strokeAlpha }`.            |
 
 ### Hotkeys
 
@@ -181,55 +220,39 @@ spoon.KeyCaster:bindHotkeys({
 
 ## Examples
 
-### 1) Column mode, bottom-right (default)
+### 1) Column mode with tight grouping (default)
 
 ```lua
 spoon.KeyCaster:configure({
   mode = "column",
-  position = { corner = "bottomRight", x = 20, y = 80 },
+  column = { groupJoiner = "", fillMode = "measure", fillFactor = 0.96 },
 })
 ```
 
-### 2) Column mode, top-right, denser boxes
+### 2) Column mode with a thin space joiner
 
 ```lua
 spoon.KeyCaster:configure({
   mode = "column",
-  position = { corner = "topRight", x = 20, y = 40 },
-  box = { w = 300, h = 34, spacing = 6, corner = 8 },
-  column = { maxCharsPerBox = 18, newBoxOnPause = 0.5 },
+  column = { groupJoiner = " " }, -- U+2009 THIN SPACE
 })
 ```
 
-### 3) Line mode, top-left, wide bar
+### 3) Line mode, spaced segments, no gap
 
 ```lua
 spoon.KeyCaster:configure({
   mode = "line",
-  position = { corner = "topLeft", x = 24, y = 24 },
-  line = { box = { w = 640, h = 40, corner = 10 }, maxSegments = 100, gap = 8 },
+  line = { joiner = " ", gap = 0, fadeMode = "overflow" },
 })
 ```
 
-### 4) Theming
+### 4) Time-fade line mode
 
 ```lua
 spoon.KeyCaster:configure({
-  colors = {
-    bg    = { red=0.10, green=0.10, blue=0.12, alpha=0.85 },
-    text  = { red=0.96, green=0.96, blue=0.96, alpha=1.00 },
-    stroke= { red=1.00, green=1.00, blue=1.00, alpha=0.12 },
-    shadow= { red=0.00, green=0.00, blue=0.00, alpha=0.65 },
-  },
-  font = { name = "Menlo", size = 20 },
-})
-```
-
-### 5) Ignore auto-repeat (default on) / change fade speed
-
-```lua
-spoon.KeyCaster:configure({
-  ignoreAutoRepeat = true,
+  mode = "line",
+  line = { fadeMode = "time" },  -- uses fadingDuration
   fadingDuration = 1.6,
 })
 ```
@@ -241,49 +264,27 @@ spoon.KeyCaster:configure({
 * **Nothing appears**
 
   * Check Accessibility permission for Hammerspoon.
-  * Ensure the Spoon folder is `~/.hammerspoon/Spoons/KeyCaster.spoon/` and the file is named `init.lua`.
-  * Look for console errors in Hammerspoon (⌘\` to open Console).
+  * Ensure the Spoon path is `~/.hammerspoon/Spoons/KeyCaster.spoon/init.lua`.
+  * Check Hammerspoon Console (⌘\`) for errors.
 
-* **Font errors** (`hs.canvas:textFont must be a string`)
+* **Menubar icon missing**
 
-  * Set `font.name` to an installed font, e.g. `"Menlo"`.
-  * The Spoon auto-resolves fonts and falls back to Menlo.
+  * The **KC** icon shows **while active**. Start with ⌃⌥⌘K or `spoon.KeyCaster:start()`.
 
 * **Overlay on wrong display**
 
-  * The overlay follows the monitor under your **mouse**. Move the mouse to the desired display.
+  * The overlay follows the display under your **mouse**. Move the mouse to the target display.
 
-* **Too many boxes**
+* **Font errors**
 
-  * Lower `maxVisible`, or shorten `fadingDuration`, or decrease `column.maxCharsPerBox`.
+  * Set `font.name` to an installed font (e.g., `"Menlo"`). The Spoon falls back gracefully.
 
 ---
 
-## Development
+## Contributing
 
-### Local dev
-
-* Edit `~/.hammerspoon/Spoons/KeyCaster.spoon/init.lua` and reload Hammerspoon.
-* The code avoids swallowing events and wraps the event tap in `pcall` to prevent stuck input if errors occur.
-
-### Project layout
-
-```
-KeyCaster.spoon/
-├── init.lua      -- Spoon implementation
-└── README.md     -- This file
-```
-
-### Contributing
-
-* PRs welcome! Please keep coding style close to upstream Hammerspoon Spoons.
-* Add/update examples and the configuration reference for new options.
-* Test both **column** and **line** modes, single and multi-display setups.
-
-
-## Demo GIF
-
-A demo GIF is referenced at `docs/demo.gif`. See **docs/DEMO\_GUIDE.md** to record and optimize one. Aim for < 2 MB so it loads fast on GitHub.
+PRs welcome!
+Please update examples and the configuration table when adding features, and test both modes across single/multi-display setups.
 
 ## License
 
