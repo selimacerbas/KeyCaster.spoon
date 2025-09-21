@@ -19,7 +19,7 @@ local obj = {}
 obj.__index = obj
 
 obj.name = "KeyCaster"
-obj.version = "0.0.3"
+obj.version = "0.0.4"
 obj.author = "Selim Acerbas"
 obj.homepage = "https://www.github.com/selimacerbas/KeyCaster.spoon/"
 obj.license = "MIT"
@@ -37,14 +37,17 @@ obj.config = {
 
     -- Column mode visuals
     box = { w = 260, h = 36, spacing = 8, corner = 10 },
-    position = { corner = "bottomRight", x = 20, y = 80 }, -- legacy corner-based placement
-    positionMode = "free",
+
+    -- Free placement (top-left anchor in pixels)
     positionFree = { x = 20, y = 80 },
+
     column = {
         maxCharsPerBox = 14,        -- legacy fallback: start a new box after this many glyphs (used if fillMode="chars")
         newBoxOnPause  = 0.70,      -- seconds of inactivity to start a new box
         fillMode       = "measure", -- "measure" (preferred, uses pixel width) | "chars"
         fillFactor     = 0.96,      -- when measuring, start a new box once text width exceeds fillFactor * available width
+        hardGrouping   = true,      -- keep each keystroke label intact; never split a label across boxes
+        groupJoiner    = "",        -- between labels when appending ("" = tight grouping, " " = spaced)
     },
 
     -- Line mode visuals
@@ -53,6 +56,8 @@ obj.config = {
         maxSegments = 60,      -- hard cap on segments kept in memory
         gap = 6,               -- px gap between segments
         fadeMode = "overflow", -- "overflow" (no time fade; drop when off-box) | "time"
+        -- joiner inserted before each segment except the first; if nil, falls back to column.groupJoiner or " "
+        joiner = nil,
     },
 
     font = { name = "Menlo", size = 18 }, -- default to Menlo (broadly available)
@@ -202,8 +207,7 @@ end
 -- Keep a normalized anchor (0..1) so we can map across displays deterministically.
 function obj:_updateNormalized(boxW, boxH)
     local scr = self:_currentScreen(); local f = scr:frame()
-    local pos = (self.config.positionMode == "free") and (self.config.positionFree or { x = f.x + 20, y = f.y + 80 }) or
-        (self.config.position or { x = f.x + 20, y = f.y + 80 })
+    local pos = (self.config.positionFree or { x = f.x + 20, y = f.y + 80 })
     local denomW = math.max(1, f.w - (boxW or 1))
     local denomH = math.max(1, f.h - (boxH or 1))
     self._norm.x = clamp((pos.x - f.x) / denomW, 0.0, 1.0)
@@ -215,7 +219,6 @@ function obj:_applyNormalized(boxW, boxH)
     local scr = self:_currentScreen(); local f = scr:frame()
     local x = f.x + self._norm.x * (f.w - boxW)
     local y = f.y + self._norm.y * (f.h - boxH)
-    if self.config.positionMode ~= "free" then self.config.positionMode = "free" end
     self.config.positionFree = self.config.positionFree or {}
     self.config.positionFree.x = math.floor(x)
     self.config.positionFree.y = math.floor(y)
@@ -224,40 +227,14 @@ end
 -- Decide growth direction for the column stack based on Y relative to screen center
 function obj:_growthDirection()
     local scr = self:_currentScreen(); local f = scr:frame()
-    local pos = (self.config.positionMode == "free") and (self.config.positionFree or { x = f.x + 20, y = f.y + 80 }) or
-        (self.config.position or { x = f.x + 20, y = f.y + 80 })
+    local pos = (self.config.positionFree or { x = f.x + 20, y = f.y + 80 })
     local midY = f.y + (f.h / 2)
     return (pos.y <= midY) and "down" or "up"
 end
 
-function obj:_anchor()
-    local pos    = self.config.position or { corner = "bottomRight", x = 20, y = 80 }
-    local corner = string.lower(pos.corner or "bottomRight")
-    local scr    = self:_currentScreen()
-    local f      = scr:frame()
-    local rightX = f.x + f.w - (pos.x or 20)
-    local leftX  = f.x + (pos.x or 20)
-    local topY   = f.y + (pos.y or 80)
-    local botY   = f.y + f.h - (pos.y or 80)
-    local ax, ay
-    if corner == "bottomright" then
-        ax, ay = rightX, botY
-    elseif corner == "topright" then
-        ax, ay = rightX, topY
-    elseif corner == "topleft" then
-        ax, ay = leftX, topY
-    elseif corner == "bottomleft" then
-        ax, ay = leftX, botY
-    else
-        ax, ay = rightX, botY
-    end
-    return ax, ay, corner
-end
-
 function obj:_baseFrameForIndex(i, boxW, boxH)
     local scr = self:_currentScreen(); local f = scr:frame()
-    local pos = (self.config.positionMode == "free") and (self.config.positionFree or { x = f.x + 20, y = f.y + 80 }) or
-        (self.config.position or { x = f.x + 20, y = f.y + 80 })
+    local pos = (self.config.positionFree or { x = f.x + 20, y = f.y + 80 })
     local x0 = clamp(math.floor(pos.x or (f.x + 20)), f.x, f.x + f.w - boxW)
     local y0 = clamp(math.floor(pos.y or (f.y + 80)), f.y, f.y + f.h - boxH)
     local spacing = self.config.box.spacing or 8
@@ -443,7 +420,8 @@ function obj:_columnPush(label)
         if c.column.fillMode == "measure" then
             local paddingLR = 24 -- matches text frame { x=12, w=frame.w-24 }
             local available = (c.box.w - paddingLR) * (c.column.fillFactor or 0.96)
-            local candidate = (g.text and #g.text > 0) and (g.text .. " " .. label) or label
+            local joiner = (c.column.groupJoiner ~= nil) and c.column.groupJoiner or " "
+            local candidate = (g.text and #g.text > 0) and (g.text .. joiner .. label) or label
             local w = self:_measure(candidate)
             long = (w > available)
         else
@@ -456,7 +434,8 @@ function obj:_columnPush(label)
         startNewBox()
     else
         -- append to existing
-        local candidate = (g.text and #g.text > 0) and (g.text .. " " .. label) or label
+        local joiner = (c.column.groupJoiner ~= nil) and c.column.groupJoiner or " "
+        local candidate = (g.text and #g.text > 0) and (g.text .. joiner .. label) or label
         if c.column.fillMode == "measure" then
             local paddingLR = 24
             local available = (c.box.w - paddingLR) * (c.column.fillFactor or 0.96)
@@ -587,8 +566,7 @@ function obj:_layoutLine()
 
     -- position the single line canvas using free placement
     local scr = self:_currentScreen(); local f = scr:frame()
-    local pos = (self.config.positionMode == "free") and (self.config.positionFree or { x = f.x + 20, y = f.y + 80 }) or
-        (self.config.position or { x = f.x + 20, y = f.y + 80 })
+    local pos = (self.config.positionFree or { x = f.x + 20, y = f.y + 80 })
     local x = clamp(pos.x or (f.x + 20), f.x, f.x + f.w - L.box.w)
     local y = clamp(pos.y or (f.y + 80), f.y, f.y + f.h - L.box.h)
     self._lineCanvas:frame({ x = x, y = y, w = L.box.w, h = L.box.h })
@@ -619,6 +597,12 @@ end
 
 function obj:_linePush(label)
     self:_ensureLineCanvas()
+    -- Apply hard grouping joiner (prefix to all but first segment)
+    local joiner = (self.config.line and self.config.line.joiner ~= nil) and self.config.line.joiner
+        or ((self.config.column and self.config.column.groupJoiner) or " ")
+    if #self._segments > 0 then
+        label = (joiner or "") .. label
+    end
     local seg = { text = label, createdAt = now(), fadeProgress = 0 }
     table.insert(self._segments, seg)
 
@@ -725,9 +709,7 @@ function obj:_ensureDragTap()
             local fr = currentBounds()
             if pointInFrame(loc, fr) then
                 local scr = self:_currentScreen(); local f = scr:frame()
-                local pos = (self.config.positionMode == "free") and
-                    (self.config.positionFree or { x = f.x + 20, y = f.y + 80 }) or
-                    (self.config.position or { x = f.x + 20, y = f.y + 80 })
+                local pos = (self.config.positionFree or { x = f.x + 20, y = f.y + 80 })
                 self._drag.active = true
                 self._drag.offset = { x = loc.x - (pos.x or 0), y = loc.y - (pos.y or 0) }
                 return false
@@ -737,7 +719,6 @@ function obj:_ensureDragTap()
                 local scr = self:_currentScreen(); local f = scr:frame()
                 local nx = clamp(loc.x - self._drag.offset.x, f.x, f.x + f.w - 20)
                 local ny = clamp(loc.y - self._drag.offset.y, f.y, f.y + f.h - 20)
-                if self.config.positionMode ~= "free" then self.config.positionMode = "free" end
                 self.config.positionFree = self.config.positionFree or {}
                 self.config.positionFree.x = nx; self.config.positionFree.y = ny
                 -- update normalized after drag
@@ -904,10 +885,8 @@ function obj:configure(tbl)
     for k, v in pairs(tbl) do merged[k] = v end
     self.config = merged
 
-    -- ensure free position table exists if in free mode
-    if self.config.positionMode == "free" then
-        self.config.positionFree = self.config.positionFree or { x = 20, y = 80 }
-    end
+    -- ensure free position table exists
+    self.config.positionFree = self.config.positionFree or { x = 20, y = 80 }
 
     self._resolvedFont = nil
     for _, seg in ipairs(self._segments) do seg.width = nil end
