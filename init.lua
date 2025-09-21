@@ -19,7 +19,7 @@ local obj = {}
 obj.__index = obj
 
 obj.name = "KeyCaster"
-obj.version = "0.0.5"
+obj.version = "0.0.6"
 obj.author = "Selim Acerbas"
 obj.homepage = "https://www.github.com/selimacerbas/KeyCaster.spoon/"
 obj.license = "MIT"
@@ -41,12 +41,12 @@ obj.config = {
     positionMode = "free",
     positionFree = { x = 20, y = 80 },
     column = {
-        maxCharsPerBox = 14,   -- legacy fallback: start a new box after this many glyphs (used if fillMode="chars")
-        newBoxOnPause  = 0.70, -- seconds of inactivity to start a new box
+        maxCharsPerBox = 14,        -- legacy fallback: start a new box after this many glyphs (used if fillMode="chars")
+        newBoxOnPause  = 0.70,      -- seconds of inactivity to start a new box
         fillMode       = "measure", -- "measure" (preferred, uses pixel width) | "chars"
-        fillFactor     = 0.96, -- when measuring, start a new box once text width exceeds fillFactor * available width
-        hardGrouping   = true, -- keep each keystroke label intact; never split a label across boxes
-        groupJoiner    = "",   -- between labels when appending ("" = tight grouping, " " = spaced)
+        fillFactor     = 0.96,      -- when measuring, start a new box once text width exceeds fillFactor * available width
+        hardGrouping   = true,      -- keep each keystroke label intact; never split a label across boxes
+        groupJoiner    = "",        -- between labels when appending ("" = tight grouping, " " = spaced)
     },
 
     -- Line mode visuals
@@ -71,6 +71,15 @@ obj.config = {
     appFilter = nil,                                                              -- e.g., { mode = "deny", bundleIDs = {"com.agilebits.onepassword7"} }
     showModifierOnly = false,                                                     -- if true, show chords like ⌘⇧ when pressed without characters
     showMouse = { enabled = false, radius = 14, fade = 0.6, strokeAlpha = 0.35 }, -- click bubbles
+
+    -- Drag highlight (NEW)
+    dragHighlight = {
+        enabled = true,
+        padding = 4,
+        width = 3,
+        corner = 12,
+        color = { red = 1, green = 0.85, blue = 0, alpha = 0.95 }
+    },
 }
 
 -- Default hotkeys
@@ -93,9 +102,10 @@ obj._reverseKeycodes = nil
 obj._resolvedFont = nil
 obj._lineTimer = nil
 obj._mouseTap = nil
--- NEW: dragging state
+-- Drag state
 obj._dragTap = nil
 obj._drag = { active = false, offset = { x = 0, y = 0 } }
+obj._dragHighlight = nil
 -- Deterministic cross-display anchor (normalized)
 obj._lastScreenUUID = nil
 obj._norm = { x = 0.95, y = 0.85 }
@@ -205,7 +215,7 @@ end
 function obj:_updateNormalized(boxW, boxH)
     local scr = self:_currentScreen(); local f = scr:frame()
     local pos = (self.config.positionMode == "free") and (self.config.positionFree or { x = f.x + 20, y = f.y + 80 }) or
-    (self.config.position or { x = f.x + 20, y = f.y + 80 })
+        (self.config.position or { x = f.x + 20, y = f.y + 80 })
     local denomW = math.max(1, f.w - (boxW or 1))
     local denomH = math.max(1, f.h - (boxH or 1))
     self._norm.x = clamp((pos.x - f.x) / denomW, 0.0, 1.0)
@@ -227,7 +237,7 @@ end
 function obj:_growthDirection()
     local scr = self:_currentScreen(); local f = scr:frame()
     local pos = (self.config.positionMode == "free") and (self.config.positionFree or { x = f.x + 20, y = f.y + 80 }) or
-    (self.config.position or { x = f.x + 20, y = f.y + 80 })
+        (self.config.position or { x = f.x + 20, y = f.y + 80 })
     local midY = f.y + (f.h / 2)
     return (pos.y <= midY) and "down" or "up"
 end
@@ -259,7 +269,7 @@ end
 function obj:_baseFrameForIndex(i, boxW, boxH)
     local scr = self:_currentScreen(); local f = scr:frame()
     local pos = (self.config.positionMode == "free") and (self.config.positionFree or { x = f.x + 20, y = f.y + 80 }) or
-    (self.config.position or { x = f.x + 20, y = f.y + 80 })
+        (self.config.position or { x = f.x + 20, y = f.y + 80 })
     local x0 = clamp(math.floor(pos.x or (f.x + 20)), f.x, f.x + f.w - boxW)
     local y0 = clamp(math.floor(pos.y or (f.y + 80)), f.y, f.y + f.h - boxH)
     local spacing = self.config.box.spacing or 8
@@ -289,10 +299,22 @@ function obj:_ensureMenubar(state)
                         {
                             title = "Mode",
                             menu = {
-                                { title = "Column", checked = (self.config.mode == "column"), fn = function() self
-                                        :setMode("column") end },
-                                { title = "Line",   checked = (self.config.mode == "line"),   fn = function() self
-                                        :setMode("line") end },
+                                {
+                                    title = "Column",
+                                    checked = (self.config.mode == "column"),
+                                    fn = function()
+                                        self
+                                            :setMode("column")
+                                    end
+                                },
+                                {
+                                    title = "Line",
+                                    checked = (self.config.mode == "line"),
+                                    fn = function()
+                                        self
+                                            :setMode("line")
+                                    end
+                                },
                             }
                         },
                         { title = "-" },
@@ -302,7 +324,6 @@ function obj:_ensureMenubar(state)
                         },
                     }
                 end)
-                self._menubar:setMenu({ { title = "Stop KeyCaster", fn = function() self:stop() end }, })
             end
         end
     else
@@ -391,6 +412,56 @@ function obj:_applyBehaviors(cv)
         cv:behaviorAsLabels({ "canJoinAllSpaces", "ignoresMouseEvents" })
     elseif cv.behavior and hs.canvas and hs.canvas.windowBehaviors then
         cv:behavior(hs.canvas.windowBehaviors.canJoinAllSpaces + hs.canvas.windowBehaviors.ignoresMouseEvents)
+    end
+end
+
+-- Highlight helpers (NEW)
+function obj:_currentBounds()
+    if self.config.mode == "line" and self._lineCanvas then
+        return self._lineCanvas:frame()
+    end
+    local minx, miny, maxx, maxy
+    for _, it in ipairs(self._items) do
+        if it.canvas then
+            local fr = it.canvas:frame()
+            minx = (minx == nil) and fr.x or math.min(minx, fr.x)
+            miny = (miny == nil) and fr.y or math.min(miny, fr.y)
+            maxx = (maxx == nil) and (fr.x + fr.w) or math.max(maxx, fr.x + fr.w)
+            maxy = (maxy == nil) and (fr.y + fr.h) or math.max(maxy, fr.y + fr.h)
+        end
+    end
+    if minx then return { x = minx, y = miny, w = maxx - minx, h = maxy - miny } end
+    return nil
+end
+
+function obj:_updateDragHighlight(bounds)
+    if not self.config.dragHighlight or not self.config.dragHighlight.enabled then return end
+    if not bounds then return end
+    local pad = (self.config.dragHighlight.padding or 4)
+    local fr = { x = bounds.x - pad, y = bounds.y - pad, w = bounds.w + pad * 2, h = bounds.h + pad * 2 }
+    if not self._dragHighlight then
+        local cv = hs.canvas.new(fr)
+        cv:level(hs.canvas.windowLevels.overlay)
+        self:_applyBehaviors(cv)
+        cv[1] = {
+            type = "rectangle",
+            action = "stroke",
+            strokeColor = self.config.dragHighlight.color or { red = 1, green = 0.85, blue = 0, alpha = 0.95 },
+            strokeWidth = self.config.dragHighlight.width or 3,
+            roundedRectRadii = { xRadius = self.config.dragHighlight.corner or 12, yRadius = self.config.dragHighlight.corner or 12 },
+        }
+        cv:show()
+        self._dragHighlight = cv
+    else
+        self._dragHighlight:frame(fr)
+        self._dragHighlight:show()
+    end
+end
+
+function obj:_clearDragHighlight()
+    if self._dragHighlight then
+        self._dragHighlight:delete()
+        self._dragHighlight = nil
     end
 end
 
@@ -635,7 +706,7 @@ function obj:_layoutLine()
     -- position the single line canvas using free placement
     local scr = self:_currentScreen(); local f = scr:frame()
     local pos = (self.config.positionMode == "free") and (self.config.positionFree or { x = f.x + 20, y = f.y + 80 }) or
-    (self.config.position or { x = f.x + 20, y = f.y + 80 })
+        (self.config.position or { x = f.x + 20, y = f.y + 80 })
     local x = clamp(pos.x or (f.x + 20), f.x, f.x + f.w - L.box.w)
     local y = clamp(pos.y or (f.y + 80), f.y, f.y + f.h - L.box.h)
     self._lineCanvas:frame({ x = x, y = y, w = L.box.w, h = L.box.h })
@@ -695,9 +766,11 @@ function obj:_passesAppFilter()
     local app = hs.application.frontmostApplication()
     local bid = app and app:bundleID() or ""
     local listed = false
-    for _, id in ipairs(f.bundleIDs) do if id == bid then
+    for _, id in ipairs(f.bundleIDs) do
+        if id == bid then
             listed = true; break
-        end end
+        end
+    end
     return (f.mode == "allow") and listed or (f.mode == "deny") and not listed
 end
 
@@ -734,10 +807,8 @@ function obj:_flashClickAt(point, typ)
 end
 
 -- ===============
--- Event handling
+-- Event handling (drag to move)
 -- ===============
-
--- Drag (Cmd+Alt + left-drag) to move KeyCaster anywhere
 function obj:_ensureDragTap()
     if self._dragTap then return end
     self._dragTap = hs.eventtap.new({
@@ -750,32 +821,21 @@ function obj:_ensureDragTap()
         local function pointInFrame(p, fr)
             return fr and p.x >= fr.x and p.x <= fr.x + fr.w and p.y >= fr.y and p.y <= fr.y + fr.h
         end
-        local function currentBounds()
-            if self.config.mode == "line" and self._lineCanvas then return self._lineCanvas:frame() end
-            local minx, miny, maxx, maxy
-            for _, it in ipairs(self._items) do
-                if it.canvas then
-                    local fr = it.canvas:frame()
-                    minx = (not minx) and fr.x or math.min(minx, fr.x)
-                    miny = (not miny) and fr.y or math.min(miny, fr.y)
-                    maxx = (not maxx) and (fr.x + fr.w) or math.max(maxx, fr.x + fr.w)
-                    maxy = (not maxy) and (fr.y + fr.h) or math.max(maxy, fr.y + fr.h)
-                end
-            end
-            if minx then return { x = minx, y = miny, w = maxx - minx, h = maxy - miny } end
-            return nil
-        end
+
         if t == hs.eventtap.event.types.leftMouseDown then
             if not needMods then return false end
-            local fr = currentBounds()
+            local fr = self:_currentBounds()
             if pointInFrame(loc, fr) then
                 local scr = self:_currentScreen(); local f = scr:frame()
-                local pos = (self.config.positionMode == "free") and (self.config.positionFree or { x = f.x + 20, y = f.y + 80 }) or
-                (self.config.position or { x = f.x + 20, y = f.y + 80 })
+                local pos = (self.config.positionMode == "free") and
+                    (self.config.positionFree or { x = f.x + 20, y = f.y + 80 }) or
+                    (self.config.position or { x = f.x + 20, y = f.y + 80 })
                 self._drag.active = true
                 self._drag.offset = { x = loc.x - (pos.x or 0), y = loc.y - (pos.y or 0) }
-                return false
+                self:_updateDragHighlight(fr)
+                return true -- swallow so we don't select items behind
             end
+            return false
         elseif t == hs.eventtap.event.types.leftMouseDragged then
             if self._drag.active then
                 local scr = self:_currentScreen(); local f = scr:frame()
@@ -791,10 +851,16 @@ function obj:_ensureDragTap()
                     self:_updateNormalized(boxW, boxH)
                 end
                 if self.config.mode == "line" then self:_layoutLine() else self:_renderColumnPositions() end
-                return false
+                self:_updateDragHighlight(self:_currentBounds())
+                return true -- swallow
             end
+            return false
         elseif t == hs.eventtap.event.types.leftMouseUp then
-            self._drag.active = false
+            if self._drag.active then
+                self._drag.active = false
+                self:_clearDragHighlight()
+                return true -- swallow release
+            end
             return false
         end
         return false
@@ -952,6 +1018,7 @@ function obj:stop()
     if self._dragTap then
         self._dragTap:stop(); self._dragTap = nil
     end
+    self:_clearDragHighlight()
     self:_ensureMenubar(false)
 
     for i = #self._items, 1, -1 do
@@ -999,7 +1066,9 @@ function obj:configure(tbl)
     if self._tap then
         if self.config.mode == "line" then
             self:_ensureLineCanvas(); self:_layoutLine()
-        else self:_renderColumnPositions() end
+        else
+            self:_renderColumnPositions()
+        end
     end
     return self
 end
