@@ -19,7 +19,7 @@ local obj = {}
 obj.__index = obj
 
 obj.name = "KeyCaster"
-obj.version = "0.0.4"
+obj.version = "0.0.5"
 obj.author = "Selim Acerbas"
 obj.homepage = "https://www.github.com/selimacerbas/KeyCaster.spoon/"
 obj.license = "MIT"
@@ -37,17 +37,16 @@ obj.config = {
 
     -- Column mode visuals
     box = { w = 260, h = 36, spacing = 8, corner = 10 },
-
-    -- Free placement (top-left anchor in pixels)
+    position = { corner = "bottomRight", x = 20, y = 80 }, -- legacy corner-based placement
+    positionMode = "free",
     positionFree = { x = 20, y = 80 },
-
     column = {
-        maxCharsPerBox = 14,        -- legacy fallback: start a new box after this many glyphs (used if fillMode="chars")
-        newBoxOnPause  = 0.70,      -- seconds of inactivity to start a new box
+        maxCharsPerBox = 14,   -- legacy fallback: start a new box after this many glyphs (used if fillMode="chars")
+        newBoxOnPause  = 0.70, -- seconds of inactivity to start a new box
         fillMode       = "measure", -- "measure" (preferred, uses pixel width) | "chars"
-        fillFactor     = 0.96,      -- when measuring, start a new box once text width exceeds fillFactor * available width
-        hardGrouping   = true,      -- keep each keystroke label intact; never split a label across boxes
-        groupJoiner    = "",        -- between labels when appending ("" = tight grouping, " " = spaced)
+        fillFactor     = 0.96, -- when measuring, start a new box once text width exceeds fillFactor * available width
+        hardGrouping   = true, -- keep each keystroke label intact; never split a label across boxes
+        groupJoiner    = "",   -- between labels when appending ("" = tight grouping, " " = spaced)
     },
 
     -- Line mode visuals
@@ -56,8 +55,6 @@ obj.config = {
         maxSegments = 60,      -- hard cap on segments kept in memory
         gap = 6,               -- px gap between segments
         fadeMode = "overflow", -- "overflow" (no time fade; drop when off-box) | "time"
-        -- joiner inserted before each segment except the first; if nil, falls back to column.groupJoiner or " "
-        joiner = nil,
     },
 
     font = { name = "Menlo", size = 18 }, -- default to Menlo (broadly available)
@@ -207,7 +204,8 @@ end
 -- Keep a normalized anchor (0..1) so we can map across displays deterministically.
 function obj:_updateNormalized(boxW, boxH)
     local scr = self:_currentScreen(); local f = scr:frame()
-    local pos = (self.config.positionFree or { x = f.x + 20, y = f.y + 80 })
+    local pos = (self.config.positionMode == "free") and (self.config.positionFree or { x = f.x + 20, y = f.y + 80 }) or
+    (self.config.position or { x = f.x + 20, y = f.y + 80 })
     local denomW = math.max(1, f.w - (boxW or 1))
     local denomH = math.max(1, f.h - (boxH or 1))
     self._norm.x = clamp((pos.x - f.x) / denomW, 0.0, 1.0)
@@ -219,6 +217,7 @@ function obj:_applyNormalized(boxW, boxH)
     local scr = self:_currentScreen(); local f = scr:frame()
     local x = f.x + self._norm.x * (f.w - boxW)
     local y = f.y + self._norm.y * (f.h - boxH)
+    if self.config.positionMode ~= "free" then self.config.positionMode = "free" end
     self.config.positionFree = self.config.positionFree or {}
     self.config.positionFree.x = math.floor(x)
     self.config.positionFree.y = math.floor(y)
@@ -227,14 +226,40 @@ end
 -- Decide growth direction for the column stack based on Y relative to screen center
 function obj:_growthDirection()
     local scr = self:_currentScreen(); local f = scr:frame()
-    local pos = (self.config.positionFree or { x = f.x + 20, y = f.y + 80 })
+    local pos = (self.config.positionMode == "free") and (self.config.positionFree or { x = f.x + 20, y = f.y + 80 }) or
+    (self.config.position or { x = f.x + 20, y = f.y + 80 })
     local midY = f.y + (f.h / 2)
     return (pos.y <= midY) and "down" or "up"
 end
 
+function obj:_anchor()
+    local pos    = self.config.position or { corner = "bottomRight", x = 20, y = 80 }
+    local corner = string.lower(pos.corner or "bottomRight")
+    local scr    = self:_currentScreen()
+    local f      = scr:frame()
+    local rightX = f.x + f.w - (pos.x or 20)
+    local leftX  = f.x + (pos.x or 20)
+    local topY   = f.y + (pos.y or 80)
+    local botY   = f.y + f.h - (pos.y or 80)
+    local ax, ay
+    if corner == "bottomright" then
+        ax, ay = rightX, botY
+    elseif corner == "topright" then
+        ax, ay = rightX, topY
+    elseif corner == "topleft" then
+        ax, ay = leftX, topY
+    elseif corner == "bottomleft" then
+        ax, ay = leftX, botY
+    else
+        ax, ay = rightX, botY
+    end
+    return ax, ay, corner
+end
+
 function obj:_baseFrameForIndex(i, boxW, boxH)
     local scr = self:_currentScreen(); local f = scr:frame()
-    local pos = (self.config.positionFree or { x = f.x + 20, y = f.y + 80 })
+    local pos = (self.config.positionMode == "free") and (self.config.positionFree or { x = f.x + 20, y = f.y + 80 }) or
+    (self.config.position or { x = f.x + 20, y = f.y + 80 })
     local x0 = clamp(math.floor(pos.x or (f.x + 20)), f.x, f.x + f.w - boxW)
     local y0 = clamp(math.floor(pos.y or (f.y + 80)), f.y, f.y + f.h - boxH)
     local spacing = self.config.box.spacing or 8
@@ -256,8 +281,27 @@ function obj:_ensureMenubar(state)
         if not self._menubar then
             self._menubar = hs.menubar.new()
             if self._menubar then
-                self._menubar:setTitle("⌨︎")
-                self._menubar:setTooltip("KeyCaster: showing keystrokes")
+                self._menubar:setTitle("KC")
+                self._menubar:setTooltip("KeyCaster (" .. (self.config.mode or "column") .. ")")
+                self._menubar:setMenu(function()
+                    local active = (self._tap ~= nil)
+                    return {
+                        {
+                            title = "Mode",
+                            menu = {
+                                { title = "Column", checked = (self.config.mode == "column"), fn = function() self
+                                        :setMode("column") end },
+                                { title = "Line",   checked = (self.config.mode == "line"),   fn = function() self
+                                        :setMode("line") end },
+                            }
+                        },
+                        { title = "-" },
+                        {
+                            title = active and "Stop KeyCaster" or "Start KeyCaster",
+                            fn = function() if active then self:stop() else self:start() end end
+                        },
+                    }
+                end)
                 self._menubar:setMenu({ { title = "Stop KeyCaster", fn = function() self:stop() end }, })
             end
         end
@@ -267,6 +311,30 @@ function obj:_ensureMenubar(state)
             self._menubar = nil
         end
     end
+end
+
+-- Helper to refresh/update menubar contents at any time
+function obj:_refreshMenubar()
+    if not self._menubar then return end
+    self._menubar:setTitle("KC")
+    self._menubar:setTooltip("KeyCaster (" .. (self.config.mode or "column") .. ")")
+    self._menubar:setMenu(function()
+        local active = (self._tap ~= nil)
+        return {
+            {
+                title = "Mode",
+                menu = {
+                    { title = "Column", checked = (self.config.mode == "column"), fn = function() self:setMode("column") end },
+                    { title = "Line",   checked = (self.config.mode == "line"),   fn = function() self:setMode("line") end },
+                }
+            },
+            { title = "-" },
+            {
+                title = active and "Stop KeyCaster" or "Start KeyCaster",
+                fn = function() if active then self:stop() else self:start() end end
+            },
+        }
+    end)
 end
 
 -- ===============
@@ -566,7 +634,8 @@ function obj:_layoutLine()
 
     -- position the single line canvas using free placement
     local scr = self:_currentScreen(); local f = scr:frame()
-    local pos = (self.config.positionFree or { x = f.x + 20, y = f.y + 80 })
+    local pos = (self.config.positionMode == "free") and (self.config.positionFree or { x = f.x + 20, y = f.y + 80 }) or
+    (self.config.position or { x = f.x + 20, y = f.y + 80 })
     local x = clamp(pos.x or (f.x + 20), f.x, f.x + f.w - L.box.w)
     local y = clamp(pos.y or (f.y + 80), f.y, f.y + f.h - L.box.h)
     self._lineCanvas:frame({ x = x, y = y, w = L.box.w, h = L.box.h })
@@ -597,12 +666,6 @@ end
 
 function obj:_linePush(label)
     self:_ensureLineCanvas()
-    -- Apply hard grouping joiner (prefix to all but first segment)
-    local joiner = (self.config.line and self.config.line.joiner ~= nil) and self.config.line.joiner
-        or ((self.config.column and self.config.column.groupJoiner) or " ")
-    if #self._segments > 0 then
-        label = (joiner or "") .. label
-    end
     local seg = { text = label, createdAt = now(), fadeProgress = 0 }
     table.insert(self._segments, seg)
 
@@ -632,11 +695,9 @@ function obj:_passesAppFilter()
     local app = hs.application.frontmostApplication()
     local bid = app and app:bundleID() or ""
     local listed = false
-    for _, id in ipairs(f.bundleIDs) do
-        if id == bid then
+    for _, id in ipairs(f.bundleIDs) do if id == bid then
             listed = true; break
-        end
-    end
+        end end
     return (f.mode == "allow") and listed or (f.mode == "deny") and not listed
 end
 
@@ -709,7 +770,8 @@ function obj:_ensureDragTap()
             local fr = currentBounds()
             if pointInFrame(loc, fr) then
                 local scr = self:_currentScreen(); local f = scr:frame()
-                local pos = (self.config.positionFree or { x = f.x + 20, y = f.y + 80 })
+                local pos = (self.config.positionMode == "free") and (self.config.positionFree or { x = f.x + 20, y = f.y + 80 }) or
+                (self.config.position or { x = f.x + 20, y = f.y + 80 })
                 self._drag.active = true
                 self._drag.offset = { x = loc.x - (pos.x or 0), y = loc.y - (pos.y or 0) }
                 return false
@@ -719,6 +781,7 @@ function obj:_ensureDragTap()
                 local scr = self:_currentScreen(); local f = scr:frame()
                 local nx = clamp(loc.x - self._drag.offset.x, f.x, f.x + f.w - 20)
                 local ny = clamp(loc.y - self._drag.offset.y, f.y, f.y + f.h - 20)
+                if self.config.positionMode ~= "free" then self.config.positionMode = "free" end
                 self.config.positionFree = self.config.positionFree or {}
                 self.config.positionFree.x = nx; self.config.positionFree.y = ny
                 -- update normalized after drag
@@ -786,6 +849,45 @@ function obj:_handleKey(e)
     return false -- don't swallow the event
 end
 
+-- Add mode switcher callable from the menubar
+function obj:setMode(mode)
+    mode = string.lower(tostring(mode or ""))
+    if mode ~= "column" and mode ~= "line" then return self end
+    if self.config.mode == mode then return self end
+
+    if mode == "line" then
+        -- clear column UI
+        for i = #self._items, 1, -1 do
+            local it = self._items[i]
+            if it.timer then it.timer:stop() end
+            if it.canvas then it.canvas:delete() end
+            table.remove(self._items, i)
+        end
+        self._items = {}; self._currentGroup = nil
+        -- init line UI
+        self:_ensureLineCanvas(); self:_tickLine(); self:_layoutLine()
+    else
+        -- clear line UI
+        if self._lineTimer then
+            self._lineTimer:stop(); self._lineTimer = nil
+        end
+        if self._lineCanvas then
+            self._lineCanvas:delete(); self._lineCanvas = nil
+        end
+        self._segments = {}
+        -- render columns (if any)
+        self:_renderColumnPositions()
+    end
+
+    self.config.mode = mode
+    local boxW = (mode == "line") and self.config.line.box.w or self.config.box.w
+    local boxH = (mode == "line") and self.config.line.box.h or self.config.box.h
+    self:_updateNormalized(boxW, boxH)
+    if self._menubar then self._menubar:setTooltip("KeyCaster (" .. mode .. ")") end
+    self:_refreshMenubar()
+    return self
+end
+
 -- ===============
 -- Public API
 -- ===============
@@ -801,6 +903,7 @@ function obj:start()
     self._tap:start()
 
     self:_ensureMenubar(true)
+    self:_refreshMenubar()
     self._followTimer = hs.timer.doEvery(self.config.followInterval, function()
         local boxW = (self.config.mode == "line") and self.config.line.box.w or self.config.box.w
         local boxH = (self.config.mode == "line") and self.config.line.box.h or self.config.box.h
@@ -885,8 +988,10 @@ function obj:configure(tbl)
     for k, v in pairs(tbl) do merged[k] = v end
     self.config = merged
 
-    -- ensure free position table exists
-    self.config.positionFree = self.config.positionFree or { x = 20, y = 80 }
+    -- ensure free position table exists if in free mode
+    if self.config.positionMode == "free" then
+        self.config.positionFree = self.config.positionFree or { x = 20, y = 80 }
+    end
 
     self._resolvedFont = nil
     for _, seg in ipairs(self._segments) do seg.width = nil end
@@ -894,9 +999,7 @@ function obj:configure(tbl)
     if self._tap then
         if self.config.mode == "line" then
             self:_ensureLineCanvas(); self:_layoutLine()
-        else
-            self:_renderColumnPositions()
-        end
+        else self:_renderColumnPositions() end
     end
     return self
 end
